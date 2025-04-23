@@ -1,0 +1,318 @@
+---
+title: "Data Cleaning"
+author: "Shonushka Sawant"
+format: 
+  html:
+    self-contained: true
+---
+
+```{r, include=F}
+#ONLY NEED TO RUN THIS ONCE THEN YOU CAN COMMENT IT OUT
+
+install.packages("renv")
+renv::init()
+
+# <- shortcut is alt + -
+# %>% shortcut is alt shift m
+# |> no shortcut
+```
+
+
+```{r, include=F}
+# Load necessary libraries
+required_packages <- c("rvest", "dplyr", "tidyr", "rstatix", "ggplot2", "readr", "usmap", "plotly", "fable", "tsibble", "lubridate", "forecast", "png", "reticulate")
+
+# Check for missing packages and install them if necessary
+missing_packages <- required_packages[!(required_packages %in% installed.packages()[,"Package"])]
+if(length(missing_packages)) install.packages(missing_packages, ask = F)
+
+# Load all required packages
+lapply(required_packages, library, character.only = TRUE)
+
+renv::snapshot()
+```
+
+
+
+```{r}
+mmr_cov <- read.csv("USA/data/all/measles-USA-by-mmr-coverage.csv")
+head(mmr_cov)
+```
+
+
+```{r}
+drop_na.tbl_ts <- function(ts)  tsibble::as_tsibble(tidyr:::drop_na.data.frame(ts))
+```
+
+```{r}
+
+#drop rows with NA for vaccine percentage
+mmr_cov <- mmr_cov %>% drop_na(estimate_pct)
+
+#create a column with percent cast to numeric
+mmr_cov$num_pct <- mmr_cov$estimate_pct
+
+mmr_cov$num_pct <- as.numeric(sub("%","",mmr_cov$num_pct))/100
+```
+
+```{r}
+#summary statistics for vaccine coverage, per state
+group_by(mmr_cov, geography) %>% 
+  get_summary_stats(num_pct)
+```
+
+```{r}
+head(mmr_cov)
+```
+
+```{r}
+#summary statistics for vaccine coverage, per year
+summ_year <- group_by(mmr_cov, school_year) %>% 
+  get_summary_stats(num_pct)
+
+summ_year
+```
+
+```{r}
+#plot median vaccination rate by year
+
+summ_year %>%
+  tail(10) %>%
+  ggplot( aes(x=school_year, y=median)) +
+    geom_line(color="black") +
+    geom_point()
+```
+
+Median vaccination rates among states in the USA appear to be showing a downward trend starting from the 2019-20200 school year. We will now look at the trajectories for the states with the lowest vaccination rates in 2023-2024.
+
+```{r}
+mmr_cov2023 <- mmr_cov %>% filter(school_year == "2023-24")
+head(mmr_cov2023 %>% arrange(num_pct))
+```
+
+The states with the five lowest vaccination rates are Idaho (79.6%), Alaska (84.3%), Wisconsin (84.8%), Minnesota (87.0%), and Florida (88.1%).
+
+Compare these rates to the 2009-10 school year:
+
+```{r}
+low_2023 <- c("Idaho", "Alaska", "Wisconsin", "Minnesota", "Florida")
+mmr_cov2009 <- mmr_cov %>% filter(geography %in% low_2023, school_year == "2009-10")
+mmr_cov2009 %>% arrange(num_pct)
+```
+
+Vaccination rates for these states were notably higher in 2009-10 (excepting Alaska, which did not report its vaccination rate that year.)
+
+```{r}
+ggplot(mmr_cov_low, aes(geography, num_pct, fill = geography)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.2) +
+  guides(fill = "none") +
+  labs(
+    x = "", 
+    y = "Vaccination Rate",
+    title = "Vaccination Variation by State (2023-2024)",
+    subtitle = "States with Lowest Vaccination Rates"
+  ) +
+  theme(plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5, size = 12))
+
+```
+
+Wisconsin and Alaska show the greatest variation in vaccination rates, of the five states with the lowest rates in 2023-24.
+
+```{r}
+#at this point we will add a numeric column for the dates.
+mmr_cov$num_years <- substr(mmr_cov$school_year, 1, 4)
+mmr_cov$num_years <- as.numeric(mmr_cov$num_years)
+
+head(mmr_cov)
+```
+
+```{r}
+#fitting linear mixed effects model.
+#this is inaccurate, just for practice with lmer for now.
+library(lme4)
+lin_0 <- lmer(num_years ~ 1 + (1 | geography), data = mmr_cov)
+summary(lin_0)
+```
+
+```{r}
+library(Epi)
+ci.lin(lin_0)
+```
+
+```{r}
+mmr_cov %>%
+  filter(geography %in% low_2023) %>%
+  ggplot(aes(school_year, num_pct, color = geography, group = geography)) +
+  geom_line() + geom_point() +
+  labs(title = "Trends in Vaccination Rates (2015-2024)",
+       y = "Vaccination rate", x = "Year")
+```
+
+
+
+
+
+```{r}
+state_vax <- mmr_cov %>%
+  filter(school_year == "2023-24") %>%
+  group_by(state = geography) %>%
+  summarize(mean_vax = mean(num_pct))
+
+plot_usmap(data = state_vax, values = "mean_vax", color = "white") +
+  scale_fill_continuous(low = "red", high = "green", name = "Vaccination %") +
+  labs(title = "Measles Vaccination Rates by State, 2023") +
+  theme(legend.postion = "right")
+```
+
+```{r}
+ts_vax <- mmr_cov %>%
+  filter(geography %in% low_2023) %>%
+  mutate(
+    year = as.integer(substr(school_year, 1, 4))
+  ) %>%
+  group_by(year) %>%
+  summarize(mean_vax = mean(num_pct, na.rm = TRUE)) %>%
+  ungroup() %>%
+  # explicitly fill any missing year between min and max
+  complete(year = seq(min(year), max(year), by = 1)) %>%
+  as_tsibble(index = year)
+
+# now every year in the span is present (missing mean_vax will be NA)
+fit <- ts_vax %>% model(ETS(mean_vax))
+fc  <- forecast(fit, h = 2)
+
+autoplot(ts_vax, mean_vax) +
+  autolayer(fc, .mean) +
+  labs(
+    title = "Forecasted Vaccination Rates (2025–2026)",
+    x = "Year",
+    y = "Mean Vaccination Rate"
+  )
+
+```
+
+```{r}
+
+# build a plain ts-series with frequency = 1 (annual)
+vax_ts <- ts(
+  data      = ts_vax$mean_vax,
+  start     = min(ts_vax$year),
+  frequency = 1
+)
+
+fc <- forecast(ets(vax_ts), h = 2)
+autoplot(fc) +
+  labs(
+    title = "Forecasted Vaccination Rates (2025–2026)",
+    x     = "Year",
+    y     = "Mean Vaccination Rate"
+  )
+
+
+```
+
+```{r}
+library(tsibble)
+library(fable)
+library(dplyr)
+library(tidyr)
+
+ts_vax_fable <- mmr_cov %>%
+  filter(geography %in% low_2023) %>%
+  mutate(year = as.integer(substr(school_year,1,4))) %>%
+  group_by(year) %>%
+  summarize(mean_vax = mean(num_pct, na.rm = TRUE)) %>%
+  ungroup() %>%
+  complete(year = seq(min(year), max(year), by = 1)) %>%
+  as_tsibble(index = year) %>%
+  # simple linear interpolation for the missing years
+  mutate(mean_vax = approx(year[!is.na(mean_vax)],
+                           mean_vax[!is.na(mean_vax)],
+                           xout = year)$y)
+
+fit_fbl <- ts_vax_fable %>% model(ETS(mean_vax))
+fc_fbl  <- forecast(fit_fbl, h = 2)
+
+autoplot(fc_fbl) +
+  labs(title = "Forecasted Vaccination Rates (2025–2026)")
+
+```
+
+```{r}
+library(dplyr)
+library(tsibble)
+library(tidyr)
+library(fable)
+library(ggplot2)
+
+# 1) Build one annual series per state, and fill implicit gaps
+ts_states <- mmr_cov %>%
+  mutate(year = as.integer(substr(school_year, 1, 4))) %>%
+  group_by(geography, year) %>%
+  summarize(mean_vax = mean(num_pct, na.rm = TRUE), .groups="drop") %>%
+  as_tsibble(key = geography, index = year) %>%
+  # make every year explicit (2009:2023), with NA where missing
+  fill_gaps() %>%
+  # simple linear interpolation of those NAs (you could also choose carry-forward, etc.)
+  group_by_key() %>%
+  mutate(
+    mean_vax = approx(
+      x    = year[!is.na(mean_vax)],
+      y    = mean_vax[!is.na(mean_vax)],
+      xout = year,
+      rule = 2
+    )$y
+  ) %>%
+  ungroup()
+
+# 2) Fit ETS to each state
+models <- ts_states %>%
+  model(ETS = ETS(mean_vax))
+
+# 3) Forecast two years ahead
+fc_states <- models %>%
+  forecast(h = 2)
+
+autoplot(fc_states) +
+  labs(
+    title = "Vaccination Trends (2009–2023) and Forecast (2025–26)",
+    x     = "Year",
+    y     = "Mean Vaccination Rate"
+  ) +
+  facet_wrap(~ geography) +
+  theme_minimal()
+```
+
+::: {style="max-height:800px; overflow-y:auto;"}
+```{r, fig.width=12, fig.height=20, echo=FALSE}
+library(ggplot2)
+
+autoplot(fc_states) +
+  labs(
+    title = "Vaccination Trends (2009–2023) and Forecast (2025–26)",
+    x     = "Year", 
+    y     = "Mean Vaccination Rate"
+  ) +
+  facet_wrap(~ geography, ncol = 5) +
+  theme_minimal() +
+  theme(
+    strip.text = element_text(size=8),
+    panel.spacing = unit(0.3, "lines")
+  )
+```
+
+```{r}
+fc_states %>%
+  as_tibble() %>%
+  filter(year >= 2025) %>%
+  select(
+    geography,
+    year,
+    point = .mean
+  )
+```
+
+
+
