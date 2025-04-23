@@ -103,6 +103,7 @@ mmr_cov2009 %>% arrange(num_pct)
 Vaccination rates for these states were notably higher in 2009-10 (excepting Alaska, which did not report its vaccination rate that year.)
 
 ```{r}
+mmr_cov_low <- mmr_cov %>% filter(geography %in% low_2023)
 ggplot(mmr_cov_low, aes(geography, num_pct, fill = geography)) +
   geom_boxplot() +
   geom_jitter(width = 0.2) +
