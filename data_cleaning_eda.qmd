@@ -20,7 +20,7 @@ renv::init()
 
 ```{r, include=F}
 # Load necessary libraries
-required_packages <- c("rvest", "dplyr", "tidyr", "rstatix", "ggplot2", "readr", "usmap", "plotly", "fable", "tsibble", "lubridate", "forecast", "png", "reticulate", "stringr", "htmlwidgets")
+required_packages <- c("rvest", "dplyr", "tidyr", "rstatix", "ggplot2", "readr", "usmap", "plotly", "fable", "tsibble", "lubridate", "forecast", "png", "reticulate", "stringr", "htmlwidgets", "scales")
 
 # Check for missing packages and install them if necessary
 missing_packages <- required_packages[!(required_packages %in% installed.packages()[,"Package"])]
@@ -182,26 +182,25 @@ vax_yearly <- mmr_cov %>%
   filter(!is.na(abbr))  
 
 
-fig_map <- plot_geo(
-    vax_yearly, 
-    locationmode = 'USA-states'
-  ) %>%
+fig_map <- plot_geo(vax_yearly, locationmode='USA-states') %>%
   add_trace(
-    z         = ~mean_vax,
-    locations = ~abbr,
-    frame     = ~year,
-    colorscale= 'RdYlGn',
-    reversescale = TRUE,
-    marker    = list(line = list(color = 'white', width = 0.5)),
+    z          = ~mean_vax,
+    locations  = ~abbr,
+    frame      = ~year,
+    customdata = ~year,
     hovertemplate = paste0(
       "%{location}<br>",
-      "Year: %{frame}<br>",
-      "Vaccination: %{z:.1%}<extra></extra>"
-    )
+      "Year: %{customdata}<br>",
+      "Vaccination: %{z:.1%}",
+      "<extra></extra>"
+    ),
+    colorscale = 'Viridis',
+    zmin       = 0.75, zmax = 1,
+    marker     = list(line = list(color='white', width=0.5))
   ) %>%
   layout(
-    title = list(text = "Measles Vaccination Rates by State (2009–2023)", x = 0.5),
-    geo   = list(scope = 'usa'),
+    title = list(text="Measles Vaccination Rates (2009–2023)", x=0.5),
+    geo   = list(scope='usa'),
     updatemenus = list(
       list(
         type    = "buttons",
@@ -220,7 +219,7 @@ fig_map <- plot_geo(
     )
   )
 
-fig_map  # this will render inline in RMarkdown
+fig_map
 
 cum_df <- vax_yearly %>%
   arrange(state, year) %>%
@@ -249,6 +248,67 @@ fig_cum
 ```{r}
 print(fig_map)
 ```
+
+```{r}
+state_avg <- vax_yearly %>%
+  group_by(state, abbr) %>%
+  summarize(overall_avg = mean(mean_vax, na.rm = TRUE), .groups="drop") %>%
+  arrange(desc(overall_avg))
+
+fig_avg <- plot_ly(
+  state_avg,
+  x = ~reorder(abbr, overall_avg),
+  y = ~overall_avg,
+  type = 'bar',
+  marker = list(
+    color = ~overall_avg,
+    colorscale = 'Viridis',
+    cmin = min(state_avg$overall_avg),
+    cmax = max(state_avg$overall_avg)
+  ),
+  hoverinfo = 'text',
+  text = ~paste0(state, ": ", percent(overall_avg, accuracy = 0.1))
+) %>%
+  layout(
+    title = "Average Measles Vaccination Rate by State (2009–2023)",
+    xaxis = list(title = "State", tickangle = -45),
+    yaxis = list(title = "Avg Vaccination Rate",
+                 range = c(0.75, 1),
+                 tickformat = ".0%"),
+    margin = list(b = 80)
+  )
+
+fig_avg
+```
+
+
+```{r average-map, echo=FALSE, message=FALSE, warning=FALSE}
+
+
+fig_avg_map <- plot_geo(state_avg, locationmode = 'USA-states') %>%
+  add_trace(
+    z          = ~overall_avg,
+    locations  = ~abbr,
+    colorscale = 'Viridis',
+    zmin       = 0.75,
+    zmax       = 1,
+    marker     = list(line = list(color = 'white', width = 0.5)),
+    customdata = ~overall_avg,
+    hovertemplate = paste0(
+      "%{location}<br>",
+      "Avg Vaccination: %{customdata:.1%}<extra></extra>"
+    ),
+    colorbar = list(title = "Avg Vaccination", tickformat = ".0%")
+  ) %>%
+  layout(
+    title = list(text = "Average Measles Vaccination Rate by State (2009–2023)", x = 0.5),
+    geo   = list(scope = 'usa')
+  )
+
+fig_avg_map
+
+```
+
 
 ```{r}
 print(fig_cum)
