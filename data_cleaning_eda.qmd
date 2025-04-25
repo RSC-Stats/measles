@@ -315,5 +315,122 @@ fc_states %>%
   )
 ```
 
+Adding graphs for how each region has changed from 2009 to 2023.
 
+```{r}
+#at this point we will add a numeric column for the dates.
+mmr_cov$first_year <- substr(mmr_cov$school_year, 1, 4)
+mmr_cov$num_years <- as.numeric(mmr_cov$first_year)
+
+head(mmr_cov)
+```
+
+
+```{r}
+new_england <- c("Connecticut", "Maine", "Massachusetts", " New Hampshire",
+                 " Rhode Island", "Vermont")
+middle_atlantic <- c("New Jersey", "New York", "Pennsylvania")
+
+east_north_central <- c("Indiana", "Illinois", "Michigan", "Ohio", "Wisconsin")
+west_north_central <- c("Iowa", "Kansas", "Missouri", "Minnesota", "Nebraska",
+                        "North Dakota", "South Dakota")
+
+south_atlantic <- c("Delaware", " District of Columbia", "Florida", "Georgia",
+                    "Maryland", " North Carolina",  "South Carolina", "Virginia",
+                    "West Virginia")
+east_south_central <- c("Alabama", "Kentucky", "Mississippi", "Tennessee")
+west_south_central <- c("Arkansas", "Louisiana", "Oklahoma", "Texas")
+
+mountain <- c("Arizona", "Colorado", "Idaho", "New Mexico", "Montana",
+              "Utah", "Nevada", "Wyoming")
+pacific <- c("Alaska", "California", "Hawaii", "Oregon", "Washington")
+
+```
+
+
+```{r}
+#rates for new england
+mmr_cov %>%
+  filter(geography %in% new_england) %>%
+  ggplot(aes(first_year, num_pct, color = geography, group = geography)) +
+  geom_line() + geom_point() +
+  labs(title = "Trends in Vaccination Rates (2009-2024): New England",
+       y = "Vaccination rate", x = "Year")
+```
+
+```{r}
+#rates for middle atlantic
+mmr_cov %>%
+  filter(geography %in% middle_atlantic) %>%
+  ggplot(aes(first_year, num_pct, color = geography, group = geography)) +
+  geom_line() + geom_point() +
+  labs(title = "Trends in Vaccination Rates (2009-2024): Middle Atlantic",
+       y = "Vaccination rate", x = "Year")
+```
+
+```{r}
+
+#rates for east north central
+mmr_cov %>%
+  filter(geography %in% east_north_central) %>%
+  ggplot(aes(first_year, num_pct, color = geography, group = geography)) +
+  geom_line() + geom_point() +
+  labs(title = "Trends in Vaccination Rates (2009-2024: East North Central)",
+       y = "Vaccination rate", x = "Year")
+
+```
+
+```{r}
+mmr_cov %>%
+  filter(geography %in% west_north_central) %>%
+  ggplot(aes(first_year, num_pct, color = geography, group = geography)) +
+  geom_line() + geom_point() +
+  labs(title = "Trends in Vaccination Rates (2009-2024): West North Central",
+       y = "Vaccination rate", x = "Year")
+```
+
+```{r}
+mmr_cov %>%
+  filter(geography %in% south_atlantic) %>%
+  ggplot(aes(first_year, num_pct, color = geography, group = geography)) +
+  geom_line() + geom_point() +
+  labs(title = "Trends in Vaccination Rates (2009-2024): South Atlantic",
+       y = "Vaccination rate", x = "Year")
+```
+```{r}
+mmr_cov %>%
+  filter(geography %in% east_south_central) %>%
+  ggplot(aes(first_year, num_pct, color = geography, group = geography)) +
+  geom_line() + geom_point() +
+  labs(title = "Trends in Vaccination Rates (2009-2024): East South Central",
+       y = "Vaccination rate", x = "Year")
+```
+
+
+```{r}
+mmr_cov %>%
+  filter(geography %in% west_south_central) %>%
+  ggplot(aes(first_year, num_pct, color = geography, group = geography)) +
+  geom_line() + geom_point() +
+  labs(title = "Trends in Vaccination Rates (2009-2024): West South Central",
+       y = "Vaccination rate", x = "Year")
+```
+
+```{r}
+mmr_cov %>%
+  filter(geography %in% mountain) %>%
+  ggplot(aes(first_year, num_pct, color = geography, group = geography)) +
+  geom_line() + geom_point() +
+  labs(title = "Trends in Vaccination Rates (2009-2024): Mountain",
+       y = "Vaccination rate", x = "Year")
+```
+
+```{r}
+mmr_cov %>%
+  filter(geography %in% pacific) %>%
+  ggplot(aes(first_year, num_pct, color = geography, group = geography)) +
+  geom_line() + geom_point() +
+  labs(title = "Trends in Vaccination Rates (2009-2024): Pacific",
+       y = "Vaccination rate", x = "Year")
+```
 
