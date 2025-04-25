@@ -20,7 +20,7 @@ renv::init()
 
 ```{r, include=F}
 # Load necessary libraries
-required_packages <- c("rvest", "dplyr", "tidyr", "rstatix", "ggplot2", "readr", "usmap", "plotly", "fable", "tsibble", "lubridate", "forecast", "png", "reticulate")
+required_packages <- c("rvest", "dplyr", "tidyr", "rstatix", "ggplot2", "readr", "usmap", "plotly", "fable", "tsibble", "lubridate", "forecast", "png", "reticulate", "stringr", "htmlwidgets")
 
 # Check for missing packages and install them if necessary
 missing_packages <- required_packages[!(required_packages %in% installed.packages()[,"Package"])]
@@ -166,6 +166,94 @@ plot_usmap(data = state_vax, values = "mean_vax", color = "white") +
   labs(title = "Measles Vaccination Rates by State, 2023") +
   theme(legend.postion = "right")
 ```
+
+
+```{r setup, message=FALSE, warning=FALSE}
+state_lookup <- tibble(
+  state = state.name,
+  abbr  = state.abb
+)
+
+vax_yearly <- mmr_cov %>%
+  mutate(year = as.integer(substr(school_year, 1, 4))) %>%
+  group_by(state = geography, year) %>%
+  summarize(mean_vax = mean(num_pct, na.rm = TRUE), .groups = "drop") %>%
+  left_join(state_lookup, by = "state") %>%
+  filter(!is.na(abbr))  
+
+
+fig_map <- plot_geo(
+    vax_yearly, 
+    locationmode = 'USA-states'
+  ) %>%
+  add_trace(
+    z         = ~mean_vax,
+    locations = ~abbr,
+    frame     = ~year,
+    colorscale= 'RdYlGn',
+    reversescale = TRUE,
+    marker    = list(line = list(color = 'white', width = 0.5)),
+    hovertemplate = paste0(
+      "%{location}<br>",
+      "Year: %{frame}<br>",
+      "Vaccination: %{z:.1%}<extra></extra>"
+    )
+  ) %>%
+  layout(
+    title = list(text = "Measles Vaccination Rates by State (2009–2023)", x = 0.5),
+    geo   = list(scope = 'usa'),
+    updatemenus = list(
+      list(
+        type    = "buttons",
+        x       = 1.1,  y = 0,
+        showactive = FALSE,
+        buttons = list(
+          list(method = "animate",
+               args   = list(NULL, 
+                             list(frame = list(duration = 500, redraw = FALSE),
+                                  transition = list(duration = 0),
+                                  fromcurrent = TRUE,
+                                  mode = "immediate")),
+               label  = "▶ Play")
+        )
+      )
+    )
+  )
+
+fig_map  # this will render inline in RMarkdown
+
+cum_df <- vax_yearly %>%
+  arrange(state, year) %>%
+  group_by(state) %>%
+  mutate(cum_avg = cummean(mean_vax))
+
+fig_cum <- plot_ly(
+    cum_df,
+    x = ~year,
+    y = ~cum_avg,
+    color = ~state,
+    type  = 'scatter',
+    mode  = 'lines',
+    hoverinfo = 'text',
+    text = ~paste0(state, ": ", scales::percent(cum_avg, accuracy = 0.1))
+  ) %>%
+  layout(
+    title = "Cumulative Average Vaccination Rate by State",
+    xaxis = list(title = "Year"),
+    yaxis = list(title = "Cumulative Avg (%)")
+  )
+
+fig_cum
+```
+
+```{r}
+print(fig_map)
+```
+
+```{r}
+print(fig_cum)
+```
+
 
 ```{r}
 ts_vax <- mmr_cov %>%
