@@ -20,7 +20,7 @@ renv::init()
 
 ```{r, include=F}
 # Load necessary libraries
-required_packages <- c("rvest", "dplyr", "tidyr", "rstatix", "ggplot2", "readr", "usmap", "plotly", "fable", "tsibble", "lubridate", "forecast", "png", "reticulate", "stringr", "htmlwidgets", "scales")
+required_packages <- c("rvest", "dplyr", "tidyr", "rstatix", "ggplot2", "readr", "usmap", "plotly", "fable", "tsibble", "lubridate", "forecast", "png", "reticulate", "stringr", "htmlwidgets", "scales", "EpiSignalDetection")
 
 # Check for missing packages and install them if necessary
 missing_packages <- required_packages[!(required_packages %in% installed.packages()[,"Package"])]
@@ -150,7 +150,6 @@ mmr_cov %>%
   labs(title = "Trends in Vaccination Rates (2015-2024)",
        y = "Vaccination rate", x = "Year")
 ```
-
 
 
 
@@ -581,4 +580,63 @@ mmr_cov %>%
   labs(title = "Trends in Vaccination Rates (2009-2024): Pacific",
        y = "Vaccination rate", x = "Year")
 ```
+
+
+
+# EpisignalDetection
+
+
+```{r}
+
+eur <- read_csv("Measles_Europe.csv", show_col_types = FALSE) %>%
+  select(HealthTopic, Population, Indicator, Unit, Time, RegionName, NumValue) %>%
+  mutate(
+    Time     = paste0(as.integer(Time), "-01-01"),
+    NumValue = as.numeric(NumValue)
+  )
+
+
+usa <- read_csv("USA/data/all/measles-USA-by-year.csv", show_col_types = FALSE) %>%
+  transmute(
+    HealthTopic    = "Measles",
+    Population     = "All ages",
+    Indicator      = "Reported cases",
+    Unit           = "Count",
+    Time           = paste0(year, "-01-01"),
+    RegionName     = "United States",
+    NumValue       = as.numeric(cases)
+  )
+
+
+both <- bind_rows(eur, usa)
+write_csv(both, "measles_EU_US_combined.csv")
+
+combined_csv <- normalizePath("measles_EU_US_combined.csv",
+                              winslash = "/",
+                              mustWork = TRUE)
+
+
+esd_input <- list(
+  file           = list(datapath = combined_csv),
+  disease        = "Measles",
+  country        = "All",            
+  indicator      = "Reported cases",
+  stratification = "All ages",
+  unit           = "Year",
+  daterange      = c("2007-01-01", "2023-12-31"),
+  algo           = "FarringtonFlexible",
+  testingperiod  = 5
+)
+
+
+runEpiSDReport(
+  esd_input,
+  stratified  = FALSE,
+  outputfile  = "measles_EU_US_signal_report.html",
+  run_pandoc  = TRUE
+)
+
+
+```
+
 
