@@ -587,6 +587,83 @@ mmr_cov %>%
 
 
 ```{r}
+raw <- read.csv("Measles_Global.csv", stringsAsFactors = FALSE)
+
+# Pivot Jan–Dec → long form, and build full-date Time = "YYYY-MM-01"
+df_monthly <- raw %>%
+  pivot_longer(
+    cols      = January:December,
+    names_to  = "Month",
+    values_to = "NumValue"
+  ) %>%
+  mutate(
+    Year       = as.integer(Year),
+    MonthNum   = match(Month, month.name),                   # 1–12
+    Time       = sprintf("%d-%02d-01", Year, MonthNum),      # "YYYY-MM-01"
+    RegionName = Country                                      # match the package
+  ) %>%
+  transmute(
+    HealthTopic  = "Measles",
+    Population   = "All cases",
+    Indicator    = "Reported cases",
+    Unit         = "N",
+    Time,                                                    # "YYYY-MM-01"
+    RegionName,
+    NumValue
+  )
+
+# Inspect your Time values
+head(df_monthly$Time); tail(df_monthly$Time)
+
+
+write.csv(df_monthly, "USA/data/all/measles_US_monthly_full.csv", row.names = FALSE)
+
+# Define the input list, **not including** the file argument
+my_input <- list(
+  disease        = "Measles",
+  country        = "EU-EEA - complete series",    # this region *is* in SignalData
+  indicator      = "Reported cases",
+  stratification = "All cases",
+  unit           = "Month",                       # must be "Month" or "Week"
+  daterange      = c("1999-01-01", "2018-12-31"), # full YYYY-MM-DD strings
+  algo           = "FarringtonFlexible",
+  testingperiod  = 12                             # last 12 months
+)
+
+# Run
+plotSD(input = my_input)
+```
+
+
+
+```{r}
+# Currently not working
+EpiSignalDetection::runEpiSDReport(
+  outputfile = "measles_US_signals_report.html",
+  input      = my_input,
+  stratified = FALSE    # or TRUE to break out by Population
+)
+
+
+```
+
+
+
+```{r}
+EpiSignalDetection::runEpiSDApp()
+```
+
+
+
+
+
+
+
+
+
+
+
+```{r}
 
 eur <- read_csv("Measles_Europe.csv", show_col_types = FALSE) %>%
   select(HealthTopic, Population, Indicator, Unit, Time, RegionName, NumValue) %>%
