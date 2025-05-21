@@ -119,15 +119,22 @@ A point to note: Texas's median vaccination rate from 2009-2023 is fairly high, 
 In contrast, the median estimates for New York State and New York City are quite close, at 97.4% and 97.3% respectively.
 
 ```{r}
-mmr_cov <- mmr_cov %>% filter(geography != "Houston" | geography != "New York City")
+mmr_cov <- mmr_cov %>% filter(geography != "Houston")
+mmr_cov <- mmr_cov %>% filter(geography != "New York City")
 ```
+
+
+```{r}
+datatable(mmr_cov)
+```
+
 
 Now, we plot the median coverage rate across U.S. states by year.
 
 ```{r, warning=FALSE}
 
 #summary statistics for vaccine coverage, per year
-summ_year <- group_by(mmr_cov_nc, num_years) %>% 
+summ_year <- group_by(mmr_cov, num_years) %>% 
   get_summary_stats(num_pct)
 
 summ_year %>%
@@ -147,7 +154,6 @@ summ_year %>%
 
 Median MMR coverage appears to be showing a downward trend starting from the 2019-2020 school year, corresponding with beginning of the COVID-19 pandemic and the consequent decline in access to primary care.
 
-
 Next, we examine coverage rates for the states with the lowest vaccination rates in 2023-2024.
 
 ```{r}
@@ -160,7 +166,7 @@ datatable(head(mmr_cov2023 %>% arrange(num_pct),5),
 
 The five states with the lowest coverage in the 2023-2024 school year were Idaho (79.6%), Alaska (84.3%), Wisconsin (84.8%), Minnesota (87.0%), and Florida (88.1%).
 
-Compare these coverage rates to the 2009-10 school year. Florida, Wisconsin, and Minnesota displayed coverage rates above 90% in 2009; but by 2023, all three had dropped below 89% coverage. (Note: Alaska did not report its MMR coverage rate in 2009, so it does not appear in the following table.)
+Compare these coverage rates to the 2009-10 school year. Florida, Wisconsin, and Minnesota displayed coverage rates above 90% in 2009; but by 2023, all three states dropped below 89% coverage. (Note: Alaska did not report its MMR coverage rate in 2009, so it does not appear in the following table.)
 
 ```{r}
 low_2023 <- c("Idaho", "Alaska", "Wisconsin", "Minnesota", "Florida")
@@ -186,27 +192,26 @@ mmr_cov %>%
        y = "Vaccination rate", x = "Year")
 ```
 
-Note that coverage rates have been continually decreasing for Florida, Minnesota, and Idaho since about 2018; but Alaska's coverage increased in 2022 and 2023 after an all-time low in 2021. This may merit further investigation regarding MMR coverage in the former three states, which have shown no improvement despite the fact that most public schools (which usually require proof of childhood immunizations, including the MMR vaccine) resumed in-person instruction in the 2021-2022 school year after COVID-19 vaccines became available to the public. Given the fact that COVID-19 itself is no longer restricting access to healthcare (as it did early in the pandemic, when many hospitals ran out of beds due to the number of patients with COVID-19), this may signify:
+Note that coverage rates have been continually decreasing for Florida, Minnesota, and Idaho since about 2018; but Alaska's coverage increased in 2022 and 2023 after an all-time low in 2021. This may merit further investigation regarding MMR coverage in the former three states, which have shown no improvement despite the fact that most public schools (which usually require proof of childhood immunizations, including the MMR vaccine) resumed in-person instruction in the 2021-2022 school year, after COVID-19 vaccines became available to the public. Given the fact that COVID-19 itself is no longer restricting access to healthcare (as it did early in the pandemic, when many hospitals ran out of beds due to the number of patients with COVID-19), this may signify:
 
 a) lasting changes to the healthcare systems in these states leading to decreased access. One such change might be a shortage of healthcare workers; Definitive Healthcare, a healthcare data and analytics company, estimates that [over 145,000 healthcare workers left the industry from 2021 through 2022, nearly half of them doctors](https://www.definitivehc.com/resources/research/healthcare-staffing-shortage). 
 
-b) an increase in the percentage of the population who are uninsured, or who face other barriers to healthcare access (e.g., financial insecurity, death or disability of a parent or caregiver, etc.)
+b) an increase in the percentage of the population who are uninsured, or who face other barriers to healthcare access (e.g., financial insecurity brought about by business closures, death or disability of a parent or caregiver, etc.)
 
 c) changing attitudes about the MMR vaccine, or about vaccination in general.
 
 
-Below, we plot a heat map of MMR coverage rates in 2023, based on the `categories` column. `categories` informs us whether a geography's MMR coverage is at or above 95%, between 90% and 94.9%, or below 90%.
+Below, we plot a heat map of MMR coverage rates in 2023, based on the `categories` column. `categories` informs us whether a geography's MMR coverage is at or above 95%, between 90% and 94.9%, or below 90%. States that did not report MMR coverage in 2023 are colored gray.
 
 Note that the vast majority of states do not have a coverage rate of 95% or higher. According to the World Health Organization, [herd immunity to measles requires that at least 95% of a population be vaccinated](https://www.who.int/news-room/questions-and-answers/item/herd-immunity-lockdowns-and-covid-19). 
 
-```{r, warning=FALSE  }
+```{r, warning=FALSE}
 state_vax <- mmr_cov %>%
   filter(school_year == "2023-24") %>%
   group_by(state = geography) %>%
   select(geography, categories)
 
 plot_usmap(data = state_vax, values = "categories", color = "white") +
- # scale_fill_continuous(low = "red", high = "green", name = "Vaccination %") +
   scale_colour_stepsn(colours = terrain.colors(10)) +
   labs(title = "Measles Vaccination Rates by State, 2023") +
   theme(legend.postion = "right") +
@@ -214,11 +219,6 @@ plot_usmap(data = state_vax, values = "categories", color = "white") +
     theme(plot.caption=element_text(size=10, hjust=0, margin=margin(15,0,0,0)))
   
 ```
-
-```{r}
-state_vax
-```
-
 
 Next, we plot an interactive heat map that displays how vaccine coverage rates have changed with time. To view the data for a different year, toggle the slider under the map.
 
@@ -277,6 +277,7 @@ fig_map
 
 ```
 
+Figure 4: MMR coverage rate by state, 2009-2023. To view data for a different year, move the slider or click the Play button.
 
 ```{r, warning=FALSE}
 cum_df <- vax_yearly %>%
@@ -291,319 +292,55 @@ print(fig_map)
 ```
 
 
-During our preliminary data visualization, we found that vaccination trends differ from state to state. In this section, we examine how trends differ among U.S. regional divisions. 
 
-First, we define the nine regional divisions used by the U.S. Census.
+Watching the playthrough, we see that the appearance of COVID-19 may have influenced MMR coverage more strongly in some states than others. In the following chunk, we calculate each state's change in coverage between 2019 and 2023; we will call this difference `mmr_diff`.
 
-```{r}
-new_england <- c("Connecticut", "Maine", "Massachusetts", " New Hampshire",
-                 " Rhode Island", "Vermont")
-middle_atlantic <- c("New Jersey", "New York", "Pennsylvania")
-
-east_north_central <- c("Indiana", "Illinois", "Michigan", "Ohio", "Wisconsin")
-west_north_central <- c("Iowa", "Kansas", "Missouri", "Minnesota", "Nebraska",
-                        "North Dakota", "South Dakota")
-
-south_atlantic <- c("Delaware", " District of Columbia", "Florida", "Georgia",
-                    "Maryland", " North Carolina",  "South Carolina", "Virginia",
-                    "West Virginia")
-east_south_central <- c("Alabama", "Kentucky", "Mississippi", "Tennessee")
-west_south_central <- c("Arkansas", "Louisiana", "Oklahoma", "Texas")
-
-mountain <- c("Arizona", "Colorado", "Idaho", "New Mexico", "Montana",
-              "Utah", "Nevada", "Wyoming")
-pacific <- c("Alaska", "California", "Hawaii", "Oregon", "Washington")
-
-```
-
-
-```{r}
+```{r, results='hide'}
 #create a column containing the first year in each academic year.
 mmr_cov$first_year <- substr(mmr_cov$school_year, 1, 4)
-```
 
-Among the four New England states, only Vermont exhibited a vaccination rate below 95% in 2023. We note that coverage in Vermont has been gradually decreasing since 2018, and that there was no sudden drop in coverage during the COVID-19 pandemic (in Vermont or in any other New England state).
-
-```{r}
-#rates for new england
-mmr_cov %>%
-  filter(geography %in% new_england) %>%
-  ggplot(aes(first_year, num_pct, color = geography, group = geography)) +
-  geom_line() + geom_point() +
-  labs(title = "Trends in Vaccination Rates (2009-2024): New England",
-       y = "Vaccination rate", x = "Year")
-```
-
-Similarly, the Middle Atlantic states exhibit a gradual decrease in MMR coverage beginning in 2019.
-
-
-```{r}
-#rates for middle atlantic
-mmr_cov %>%
-  filter(geography %in% middle_atlantic) %>%
-  ggplot(aes(first_year, num_pct, color = geography, group = geography)) +
-  geom_line() + geom_point() +
-  labs(title = "Trends in Vaccination Rates (2009-2024): Middle Atlantic",
-       y = "Vaccination rate", x = "Year")
-```
-
-In the East North Central regional division, vaccination rates have declined across the board; and no states within this regional division achieved the WHO's 95% coverage goal in 2023.
-
-```{r}
-
-#rates for east north central
-mmr_cov %>%
-  filter(geography %in% east_north_central) %>%
-  ggplot(aes(first_year, num_pct, color = geography, group = geography)) +
-  geom_line() + geom_point() +
-  labs(title = "Trends in Vaccination Rates (2009-2024: East North Central)",
-       y = "Vaccination rate", x = "Year")
-
-```
-In 2023, the West North Central division also failed to achieve the 95% coverage goal. In this division, we observe a steady decline in MMR coverage beginning in 2020 for all states except Kansas.
-
-
-```{r}
-mmr_cov %>%
-  filter(geography %in% west_north_central) %>%
-  ggplot(aes(first_year, num_pct, color = geography, group = geography)) +
-  geom_line() + geom_point() +
-  labs(title = "Trends in Vaccination Rates (2009-2024): West North Central",
-       y = "Vaccination rate", x = "Year")
-```
-
-In the South Atlantic division, we note a sharp dip in coverage in Maryland (2020) and Georgia (2021); but both states have demonstrated improved vaccination rates since.
-
-```{r}
-mmr_cov %>%
-  filter(geography %in% south_atlantic) %>%
-  ggplot(aes(first_year, num_pct, color = geography, group = geography)) +
-  geom_line() + geom_point() +
-  labs(title = "Trends in Vaccination Rates (2009-2024): South Atlantic",
-       y = "Vaccination rate", x = "Year")
-```
-We also note that all four states in the East South Central division experienced a slight decrease in MMR coverage from 2022 to 2023. Of the four, Kansas appears to be furthest from the 95% threshold.
-
-```{r}
-mmr_cov %>%
-  filter(geography %in% east_south_central) %>%
-  ggplot(aes(first_year, num_pct, color = geography, group = geography)) +
-  geom_line() + geom_point() +
-  labs(title = "Trends in Vaccination Rates (2009-2024): East South Central",
-       y = "Vaccination rate", x = "Year")
-```
-
-MMR coverage in Louisiana and Texas has declined overall since 2009, but rates improved between 2022 and 2023. Coverage in Arkansas has generally been decreasing since 2019, with slight improvement between 2022 and 2023; but coverage in Oklahoma has been decreasing since 2015, with slight improvements in 2019 and 2021.
-
-```{r}
-mmr_cov %>%
-  filter(geography %in% west_south_central) %>%
-  ggplot(aes(first_year, num_pct, color = geography, group = geography)) +
-  geom_line() + geom_point() +
-  labs(title = "Trends in Vaccination Rates (2009-2024): West South Central",
-       y = "Vaccination rate", x = "Year")
-```
-In the Mountain regional division, we note that Utah and Arizona's coverage rates have declined at a very similar pace since 2014. 
-
-We also note Idaho's swift drop in coverage between 2019 and 2023. As stated earlier, Idaho had the lowest vaccination coverage in the U.S. in 2023.
-
-```{r}
-mmr_cov %>%
-  filter(geography %in% mountain) %>%
-  ggplot(aes(first_year, num_pct, color = geography, group = geography)) +
-  geom_line() + geom_point() +
-  labs(title = "Trends in Vaccination Rates (2009-2024): Mountain",
-       y = "Vaccination rate", x = "Year")
-```
-In the following plot for the Pacific regional division, note that Hawaii's MMR coverage has tended to oscillate between about 90% and 95% since 2015. We also note that Alaska's coverage rate, while low, has been improving since 2022; and that California is the only state in the region that has consistently surpassed the 95% threshold since 2014. 
-
-```{r}
-mmr_cov %>%
-  filter(geography %in% pacific) %>%
-  ggplot(aes(first_year, num_pct, color = geography, group = geography)) +
-  geom_line() + geom_point() +
-  labs(title = "Trends in Vaccination Rates (2009-2024): Pacific",
-       y = "Vaccination rate", x = "Year")
-```
-
-For a quicker overview of how vaccination rates have changed from 2013-2023, we examine the variable `categories`, which states whether a state's MMR coverage 
-
-
-```{r}
-#look at the rates for 2013-2014 and 2023-2024.
-mmr_cov2013 <- mmr_cov %>% filter(school_year == "2013-14")
+#look at the rates for 2019-2020 and 2023-2024.
+mmr_cov2019 <- mmr_cov %>% filter(school_year == "2019-20")
 mmr_cov2023 <- mmr_cov %>% filter(school_year == "2023-24")
 
+#now we rename num_pct for the 2019 and 2023 groups, so that we can easily subtract the two columns after joining them.
+mmr_cov2019 <- rename(mmr_cov2019, num_pct19 = num_pct)
+mmr_cov2023 <- rename(mmr_cov2023, num_pct23 = num_pct)
+
+#now we perform an inner join on geography.
+
+mmr_19_23 <- mmr_cov2019 %>% inner_join(mmr_cov2023, by = join_by(geography))
+mmr_19_23$mmr_diff <- mmr_19_23$num_pct23 - mmr_19_23$num_pct19
+
+
+
 ```
 
-In the table below, we see that seven states had a vaccination rate lower than 90%. 19 states displayed coverage between 90% and 94%, and a further 21 states either reached or exceeded the 95% threshold required for herd immunity. (Note: this tally does not account for the four states that did not report MMR coverage rates in 2013).
+Now, we create a table containing each state's change in coverage. To sort by difference, click on the arrow buttons to the right of `mmr_diff`.
 
 ```{r}
-datatable(mmr_cov2013 %>% count(categories))
+datatable(mmr_19_23 %>% select(geography, mmr_diff), 
+          caption = htmltools::tags$caption(
+            style = 'caption-side: bottom; text-align: left;',
+            'Table 6: ', htmltools::em('Change in MMR coverage between 2019 and 2023.')))
 ```
 
-But by 2023, 14 states reported coverage rates of 90% or less, while 26 states reported coverage between 90% and 94.9%. Only 12 states reached the 95% threshold, as opposed to 21 states in 2013: meaning that a significant majority of states will be vulnerable due to poor MMR coverage in case of measles outbreaks.
+Of the 47 states that reported MMR coverage in both 2019 and 2023, 41 had lower coverage rates in 2023 than 2019. The only states that did not were Hawaii, West Virginia, Kansas, Connecticut, Maine, and Alabama.
+
+Identifying the states with a decrease in coverage of 5% or more:
 
 ```{r}
-datatable(mmr_cov2023 %>% count(categories))
+mmr_fivepct <- mmr_19_23 %>% filter(mmr_diff < -0.0499)
+
+datatable(mmr_fivepct %>% select(geography, mmr_diff), 
+          caption = htmltools::tags$caption(
+            style = 'caption-side: bottom; text-align: left;',
+            'Table 7: ', htmltools::em('States whose MMR coverage dropped by 5% or more between 2019 and 2023.')))
+  
 ```
 
-Null states for 2009: Alaska, Colorado, DC, Hawaii, New Hampshire, New Jersey, North Carolina, Wyoming
-For 2011: Alaska, DC, Hawaii, New Hampshire, New Jersey, North Carolina, Wyoming
-2012: alaska, DC, Hawaii, NH, North Carolina, 
-2013: DC, Hawaii, North Carolina, Wyoming
-
-Note: the District of Columbia, Hawaii, North Carolina, and Wyoming have no data for 2013-2014, so we will leave them out of the analysis. 
+These states are Idaho, Wisconsin, Minnesota, Florida, South Dakota, and Illinois.
 
 
-```{r}
-#concatenate the dataframes
-mmr_13_23 <- rbind(mmr_cov2013, mmr_cov2023)
-```
 
-
-```{r}
-#edited region based on what states are missing data
-
-south_atlantic_ed <- c("Delaware", "Florida", "Georgia",
-                    "Maryland", "South Carolina", "Virginia",
-                    "West Virginia")
-
-mountain_ed <- c("Arizona", "Colorado", "Idaho", "New Mexico", "Montana",
-              "Utah", "Nevada")
-pacific_ed <- c("Alaska", "California", "Oregon", "Washington")
-
-```
-
-
-```{r}
-pac_delta <- mmr_13_23 %>%
-  filter(geography %in% pacific_ed) %>%
-  ggplot(aes(school_year, num_pct, color = geography, group = geography)) +
-  geom_line() + geom_point() +
-  labs(title = "Change in Vaccination Rates (2013-2023): Pacific",
-       y = "Vaccination rate", x = "Year")
-
-ne_delta <- mmr_13_23 %>%
-  filter(geography %in% new_england) %>%
-  ggplot(aes(school_year, num_pct, color = geography, group = geography)) +
-  geom_line() + geom_point() +
-  labs(title = "Change in Vaccination Rates (2013-2023): New England",
-       y = "Vaccination rate", x = "Year")
-
-ma_delta <- mmr_13_23 %>%
-  filter(geography %in% middle_atlantic) %>%
-  ggplot(aes(school_year, num_pct, color = geography, group = geography)) +
-  geom_line() + geom_point() +
-  labs(title = "Change in Vaccination Rates (2013-2023): Middle Atlantic",
-       y = "Vaccination rate", x = "Year")
-
-enc_delta <- mmr_13_23 %>%
-  filter(geography %in% east_north_central) %>%
-  ggplot(aes(school_year, num_pct, color = geography, group = geography)) +
-  geom_line() + geom_point() +
-  labs(title = "Change in Vaccination Rates (2013-2023): East North Central",
-       y = "Vaccination rate", x = "Year")
-
-wnc_delta <- mmr_13_23 %>%
-  filter(geography %in% west_north_central) %>%
-  ggplot(aes(school_year, num_pct, color = geography, group = geography)) +
-  geom_line() + geom_point() +
-  labs(title = "Change in Vaccination Rates (2013-2023): West North Central",
-       y = "Vaccination rate", x = "Year")
-
-mt_delta <- mmr_13_23 %>%
-  filter(geography %in% mountain_ed) %>%
-  ggplot(aes(school_year, num_pct, color = geography, group = geography)) +
-  geom_line() + geom_point() +
-  labs(title = "Change in Vaccination Rates (2013-2023): Mountain",
-       y = "Vaccination rate", x = "Year")
-
-sa_delta <- mmr_13_23 %>%
-  filter(geography %in% south_atlantic_ed) %>%
-  ggplot(aes(school_year, num_pct, color = geography, group = geography)) +
-  geom_line() + geom_point() +
-  labs(title = "Change in Vaccination Rates (2013-2023): South Atlantic",
-       y = "Vaccination rate", x = "Year")
-```
-
-
-```{r}
-mmr_13_23 %>%
-  filter(geography %in% pacific_ed) %>%
-  ggplot(aes(school_year, num_pct, color = geography, group = geography)) +
-  geom_line() + geom_point() +
-  labs(title = "Change in Vaccination Rates (2013-2023): Pacific",
-       y = "Vaccination rate", x = "Year")
-
-mmr_13_23 %>%
-  filter(geography %in% new_england) %>%
-  ggplot(aes(school_year, num_pct, color = geography, group = geography)) +
-  geom_line() + geom_point() +
-  labs(title = "Change in Vaccination Rates (2013-2023): New England",
-       y = "Vaccination rate", x = "Year")
-
-mmr_13_23 %>%
-  filter(geography %in% middle_atlantic) %>%
-  ggplot(aes(school_year, num_pct, color = geography, group = geography)) +
-  geom_line() + geom_point() +
-  labs(title = "Change in Vaccination Rates (2013-2023): Middle Atlantic",
-       y = "Vaccination rate", x = "Year")
-
-mmr_13_23 %>%
-  filter(geography %in% east_north_central) %>%
-  ggplot(aes(school_year, num_pct, color = geography, group = geography)) +
-  geom_line() + geom_point() +
-  labs(title = "Change in Vaccination Rates (2013-2023): East North Central",
-       y = "Vaccination rate", x = "Year")
-
-mmr_13_23 %>%
-  filter(geography %in% west_north_central) %>%
-  ggplot(aes(school_year, num_pct, color = geography, group = geography)) +
-  geom_line() + geom_point() +
-  labs(title = "Change in Vaccination Rates (2013-2023): West North Central",
-       y = "Vaccination rate", x = "Year")
-
-mmr_13_23 %>%
-  filter(geography %in% mountain_ed) %>%
-  ggplot(aes(school_year, num_pct, color = geography, group = geography)) +
-  geom_line() + geom_point() +
-  labs(title = "Change in Vaccination Rates (2013-2023): Mountain",
-       y = "Vaccination rate", x = "Year")
-
-mmr_13_23 %>%
-  filter(geography %in% south_atlantic_ed) %>%
-  ggplot(aes(school_year, num_pct, color = geography, group = geography)) +
-  geom_line() + geom_point() +
-  labs(title = "Change in Vaccination Rates (2013-2023): South Atlantic",
-       y = "Vaccination rate", x = "Year")
-
-mmr_13_23 %>%
-  filter(geography %in% east_south_central) %>%
-  ggplot(aes(school_year, num_pct, color = geography, group = geography)) +
-  geom_line() + geom_point() +
-  labs(title = "Change in Vaccination Rates (2013-2023): East South Central",
-       y = "Vaccination rate", x = "Year")
-
-mmr_13_23 %>%
-  filter(geography %in% west_south_central) %>%
-  ggplot(aes(school_year, num_pct, color = geography, group = geography)) +
-  geom_line() + geom_point() +
-  labs(title = "Change in Vaccination Rates (2013-2023): West South Central",
-       y = "Vaccination rate", x = "Year")
-```
-
-Of the seven sub-regions:
-
-Pacific (4 states): Oregon and Alaska saw a drop in vaccination rates in the last ten years; rates in California and Oregon increased.
-New England (4 states): All states saw an increase. Maine's increase was more drastic (~91% to ~97%).
-Middle Atlantic (3 states): Drop in New Jersey.
-East North Central (5 states): Drop across the board.
-West North Central (7 states): Drops, except for Kansas and North Dakota.
-Mountain (7 states): Drops, except for Colorado.
-South Atlantic (6 states): Drops, except for Virginia/West Virginia.
-East South Central (4 states): Increased rate in Alabama and Tennessee, decreased in Kentucky and Mississippi.
-West South Central (4 states): Drops everywhere but Arkansas.
-
-In total, out of the 47 US states/territories: 
 
