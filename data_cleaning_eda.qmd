@@ -20,7 +20,7 @@ renv::init()
 
 ```{r, include=F}
 # Load necessary libraries
-required_packages <- c("rvest", "dplyr", "tidyr", "rstatix", "ggplot2", "readr", "usmap", "plotly", "fable", "tsibble", "lubridate", "forecast", "png", "reticulate", "stringr", "htmlwidgets", "scales", "EpiSignalDetection", "prophet")
+required_packages <- c("rvest", "dplyr", "tidyr", "rstatix", "ggplot2", "readr", "usmap", "plotly", "fable", "tsibble", "lubridate", "forecast", "png", "reticulate", "stringr", "htmlwidgets", "scales", "EpiSignalDetection", "prophet", "WDI", "Kendall", "trend")
 
 # Check for missing packages and install them if necessary
 missing_packages <- required_packages[!(required_packages %in% installed.packages()[,"Package"])]
@@ -166,6 +166,16 @@ plot_usmap(data = state_vax, values = "mean_vax", color = "white") +
   theme(legend.postion = "right")
 ```
 
+```{r}
+state_vax <- mmr_cov %>%
+  filter(school_year == "2023-24") %>%
+  group_by(state = geography)
+
+plot_usmap(data = state_vax, values = "estimate_pct", color = "white") +
+  scale_fill_continuous(low = "red", high = "green", name = "Vaccination %") +
+  labs(title = "Measles Vaccination Rates by State, 2023") +
+  theme(legend.postion = "right")
+```
 
 ```{r setup, message=FALSE, warning=FALSE}
 state_lookup <- tibble(
@@ -997,6 +1007,7 @@ autoplot(ts_data) +
 
 ```
 
+
 ```{r}
 # build ts_data, fit fc_ets & fc_ari as before…
 
@@ -1024,14 +1035,73 @@ autoplot(ts_data) +
 ```
 
 
+```{r forecast-compare-clean, message=FALSE, warning=FALSE}
+
+# build ts_data, fit fc_ets & fc_ari as before…
+
+autoplot(ts_data) +
+  # 1) draw ARIMA forecast (line + ribbon)
+  autolayer(fc_ari, series = "ARIMA forecast") +
+  # 2) then ETS forecast (line + ribbon)
+  autolayer(fc_ets, series = "ETS forecast") +
+  # 3) color lines by series
+  scale_colour_manual(
+    values = c(
+      "ETS forecast"   = "blue",
+      "ARIMA forecast" = "red"
+    ),
+    breaks = c("ETS forecast", "ARIMA forecast")
+  ) +
+  labs(
+    title = "Forecasting Measles in Africa (next 12 months)",
+    x     = "Year",
+    y     = "Reported cases",
+    colour = "Model"
+  ) +
+  theme_minimal()
+
+```
+
+
+
 ```{r}
-library(prophet)
 df_prophet <- sub %>%
   transmute(ds = Time, y = NumValue)
 m <- prophet(df_prophet)
 future <- make_future_dataframe(m, periods = 12, freq = "month")
 fc  <- predict(m, future)
 plot(m, fc)
+
+```
+
+```{r}
+# 1) Read annual case counts
+case_us <- read.csv("USA/data/all/measles-USA-by-year.csv",
+                    stringsAsFactors = FALSE) %>%
+  transmute(
+    year  = as.integer(year),
+    cases = as.numeric(cases)
+  )
+
+# 2) Build total US population per year from mmr_cov
+#    (population_size in mmr_cov is the # of children in school that year)
+pop_us <- mmr_cov %>%
+  mutate(year = as.integer(substr(school_year, 1, 4))) %>%
+  group_by(year) %>%
+  summarize(
+    pop_total = sum(population_size, na.rm = TRUE),
+    .groups   = "drop"
+  )
+
+# 3) Join and compute cases per 100k
+case_us <- case_us %>%
+  left_join(pop_us, by = "year") %>%
+  mutate(
+    cases_per_100k = cases / pop_total * 1e5
+  )
+
+# 4) Quick sanity check
+print(case_us)
 
 ```
 
@@ -1088,6 +1158,73 @@ ggplot(cor_df, aes(x = national_vax, y = cases)) +
 # 6. Plots a scatter with a fitted regression line so you can see how lower vaccination rates relate to higher case counts.
 ```
 
+
+```{r correlation-vax-cases, message=FALSE, warning=FALSE}
+
+#repeat of above, but with cases_per_100k instead
+
+
+# 1. Read annual case counts
+case_us <- read.csv("USA/data/all/measles-USA-by-year.csv",
+                    stringsAsFactors = FALSE) %>%
+  transmute(
+    year  = as.integer(year),
+    cases = as.numeric(cases)
+  )
+
+# 2. Compute the denominator: total school‐aged pop per year
+pop_us <- mmr_cov %>%
+  mutate(year = as.integer(substr(school_year, 1, 4))) %>%
+  group_by(year) %>%
+  summarize(
+    pop_total = sum(population_size, na.rm = TRUE),
+    .groups   = "drop"
+  )
+
+# 3. Join pop & cases, then compute per-100k rate
+case_us <- case_us %>%
+  left_join(pop_us, by = "year") %>%
+  mutate(
+    cases_per_100k = cases / pop_total * 1e5
+  )
+
+# 4. Compute national (unweighted) MMR rate per year
+vax_us_national <- mmr_cov %>%
+  mutate(year = as.integer(substr(school_year, 1, 4))) %>%
+  group_by(year) %>%
+  summarize(
+    national_vax = mean(num_pct, na.rm = TRUE),
+    .groups      = "drop"
+  )
+
+# 5. Merge together into one data frame
+cor_df <- inner_join(case_us, vax_us_national, by = "year")
+
+# 6. Re‐run the correlation test on the per-capita metric
+pearson_r <- cor(cor_df$national_vax, cor_df$cases_per_100k,
+                 method = "pearson", use = "complete.obs")
+corr_test <- cor.test(cor_df$national_vax, cor_df$cases_per_100k)
+
+# 7. Print results
+print(cor_df)
+cat(sprintf("Pearson r = %.3f\n\n", pearson_r))
+print(corr_test)
+
+# 8. Plot with the new y-axis
+ggplot(cor_df, aes(x = national_vax, y = cases_per_100k)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(
+    title = "Correlation: National MMR Coverage vs Measles Cases per 100k (US)",
+    x     = "Mean MMR Vaccination Rate",
+    y     = "Measles Cases per 100,000"
+  ) +
+  theme_minimal()
+
+```
+
+
+
 ```{r correlation-vax-cases-weighted, message=FALSE, warning=FALSE}
 
 # 1. Read US measles case counts by year
@@ -1139,3 +1276,239 @@ ggplot(cor_df, aes(x = national_vax, y = cases)) +
 
 ```
 
+```{r global-vs-us-eur, message=FALSE, warning=FALSE}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# 1. Europe: annual totals
+eur_df <- read.csv("Measles_Europe.csv", stringsAsFactors = FALSE) %>%
+  transmute(
+    year  = as.integer(substr(Time, 1, 4)),
+    cases = as.numeric(NumValue)
+  ) %>%
+  group_by(year) %>%
+  summarize(eur_cases = sum(cases, na.rm = TRUE), .groups="drop")
+
+# 2. US: already annual
+usa_df <- read.csv("USA/data/all/measles-USA-by-year.csv",
+                   stringsAsFactors = FALSE) %>%
+  transmute(
+    year     = as.integer(year),
+    us_cases = as.numeric(cases)
+  )
+
+# 3. Global: pivot the monthly wide file into long then sum
+glb_monthly <- read.csv("Measles_Global.csv", stringsAsFactors = FALSE)
+glb_df <- glb_monthly %>%
+  pivot_longer(
+    cols      = January:December,
+    names_to  = "month",
+    values_to = "cases"
+  ) %>%
+  mutate(
+    year  = as.integer(Year),
+    cases = as.numeric(cases)
+  ) %>%
+  group_by(year) %>%
+  summarize(glb_cases = sum(cases, na.rm = TRUE), .groups="drop")
+
+# 4. Combine all three
+cases_all <- full_join(eur_df, usa_df, by = "year") %>%
+  full_join(glb_df, by = "year") %>%
+  arrange(year)
+
+# 5. Pivot into long form for plotting
+cases_long <- cases_all %>%
+  pivot_longer(
+    cols      = c(us_cases, eur_cases, glb_cases),
+    names_to  = "region",
+    values_to = "cases"
+  ) %>%
+  mutate(
+    region = recode(region,
+      us_cases  = "United States",
+      eur_cases = "Europe",
+      glb_cases = "Global")
+  )
+
+# -- Plot 1: raw annual case counts
+p1 <- ggplot(cases_long, aes(x=year, y=cases, color=region)) +
+  geom_line(size=1) +
+  labs(
+    title = "Annual Measles Case Counts: Global vs Europe vs US",
+    x     = "Year",
+    y     = "Total Reported Cases",
+    color = ""
+  ) +
+  theme_minimal()
+
+# 6. Compute year-over-year growth rates
+cases_growth <- cases_long %>%
+  group_by(region) %>%
+  arrange(year) %>%
+  mutate(
+    growth = (cases - lag(cases)) / lag(cases)
+  ) %>%
+  filter(!is.na(growth))
+
+# -- Plot 2: growth rates
+p2 <- ggplot(cases_growth, aes(x=year, y=growth, color=region)) +
+  geom_line(size=1) +
+  scale_y_continuous(labels = scales::percent_format(1)) +
+  labs(
+    title = "Year-over-Year Growth in Measles Cases",
+    x     = "Year",
+    y     = "Growth Rate",
+    color = ""
+  ) +
+  theme_minimal()
+
+# 7. Display side-by-side
+library(gridExtra)
+grid.arrange(p1, p2, ncol = 1)
+
+
+
+```
+
+
+**What this gives you:**  
+- **Top panel**: a direct comparison of total annual reported cases in the U.S., Europe, and globally—spotting big outbreaks at a glance.  
+- **Bottom panel**: the year-to-year percentage change in cases, which highlights when each region experienced sudden surges or declines.  
+
+From here you can easily swap in **cases per 100 k** (if you join population denominators) or facet by region, add trend‐lines, etc. Let me know if you’d like to extend this to include vaccination‐rate overlays or per‐capita normalization!
+
+
+
+```{r lagged-relationship-selfcontained, message=FALSE, warning=FALSE}
+library(dplyr)
+library(ggplot2)
+
+# —— 1. Rebuild cor_df exactly as in the per-capita chunk —— 
+
+# a) Read and per-capita your US case counts
+case_us <- read.csv("USA/data/all/measles-USA-by-year.csv",
+                    stringsAsFactors = FALSE) %>%
+  transmute(
+    year  = as.integer(year),
+    cases = as.numeric(cases)
+  )
+
+pop_us <- mmr_cov %>%
+  mutate(year = as.integer(substr(school_year, 1, 4))) %>%
+  group_by(year) %>%
+  summarize(pop_total = sum(population_size), .groups="drop")
+
+case_us <- case_us %>%
+  left_join(pop_us, by="year") %>%
+  mutate(cases_per_100k = cases / pop_total * 1e5)
+
+# b) National (unweighted) vax
+vax_us_national <- mmr_cov %>%
+  mutate(year = as.integer(substr(school_year, 1, 4))) %>%
+  group_by(year) %>%
+  summarize(national_vax = mean(num_pct, na.rm=TRUE), .groups="drop")
+
+# c) Merge
+cor_df <- inner_join(case_us, vax_us_national, by="year")
+
+# —— 2. Guard: need at least 3 years to do a CCF up to lag=3
+if(nrow(cor_df) < 4) stop("Need ≥4 years of data in cor_df; got ", nrow(cor_df))
+
+# —— 3. Build annual ts objects
+vax_ts  <- ts(cor_df$national_vax,  start = min(cor_df$year), freq = 1)
+case_ts <- ts(cor_df$cases_per_100k, start = min(cor_df$year), freq = 1)
+
+# —— 4. Cross‐correlation up to ±3-year lags
+ccf(vax_ts, case_ts, lag.max = 3,
+    main = "CCF: National MMR Rate vs Cases per 100k (lag ±3 years)")
+
+# —— 5. Lag-1 scatter + test
+lag  <- 1
+df_lag <- cor_df %>%
+  arrange(year) %>%
+  mutate(vax_lag = lag(national_vax, n = lag)) %>%
+  filter(!is.na(vax_lag))
+
+lag_cor <- cor.test(df_lag$vax_lag, df_lag$cases_per_100k)
+cat(sprintf("Lag-%d Pearson r = %.3f (p = %.3f)\n",
+            lag, lag_cor$estimate, lag_cor$p.value))
+
+ggplot(df_lag, aes(x=vax_lag, y=cases_per_100k)) +
+  geom_point() +
+  geom_smooth(method="lm", se=TRUE) +
+  labs(
+    title    = paste0("Cases per 100k vs MMR Rate (lag ", lag, " year)"),
+    subtitle = sprintf("r = %.2f, p = %.3f",
+                       lag_cor$estimate, lag_cor$p.value),
+    x        = paste0("MMR Rate (year t–", lag, ")"),
+    y        = "Cases per 100k (year t)"
+  ) +
+  theme_minimal()
+```
+
+```{r trend-tests-fixed, message=FALSE, warning=FALSE}
+library(dplyr)
+library(broom)
+library(Kendall)   # for MannKendall()
+library(trend)     # for sens.slope()
+library(ggplot2)
+library(gridExtra)
+
+# 1. Build annual summaries
+vax_yearly <- mmr_cov %>%
+  mutate(year = as.integer(substr(school_year,1,4))) %>%
+  group_by(year) %>%
+  summarize(mean_vax = mean(num_pct, na.rm=TRUE), .groups="drop")
+
+case_yearly <- case_us %>%                   # from your per-capita chunk
+  select(year, cases_per_100k)
+
+# 2. Inner‐join so we only keep years where both are present
+trend_df <- inner_join(vax_yearly, case_yearly, by="year")
+
+# 3. Linear regression on the aligned data
+lm_vax  <- lm(mean_vax       ~ year, data=trend_df)
+lm_case <- lm(cases_per_100k ~ year, data=trend_df)
+
+cat("=== Linear trends (slope on year) ===\n")
+print(tidy(lm_vax))
+print(tidy(lm_case))
+
+# 4. Mann–Kendall (monotonic trend) on the same data
+mk_vax  <- MannKendall(trend_df$mean_vax)
+mk_case <- MannKendall(trend_df$cases_per_100k)
+cat("\n=== Mann–Kendall ===\n")
+print(mk_vax)
+print(mk_case)
+
+# 5. Sen’s slope (median annual change) — no NAs now
+ss_vax  <- sens.slope(trend_df$mean_vax)
+ss_case <- sens.slope(trend_df$cases_per_100k)
+cat("\n=== Sen’s slope ===\n")
+print(ss_vax)
+print(ss_case)
+
+# 6. Quick diagnostic plots
+p1 <- ggplot(trend_df, aes(year, mean_vax)) +
+  geom_point() + geom_smooth(method="lm", se=TRUE) +
+  labs(title="Trend in National MMR Coverage", y="Mean Coverage") +
+  theme_minimal()
+
+p2 <- ggplot(trend_df, aes(year, cases_per_100k)) +
+  geom_point() + geom_smooth(method="lm", se=TRUE) +
+  labs(title="Trend in Measles Cases per 100k", y="Cases per 100k") +
+  theme_minimal()
+
+grid.arrange(p1, p2, ncol=1)
+
+```
+
+
+**Key changes:**
+1. We build `vax_yearly` and `case_yearly` exactly as before.  
+2. We use `inner_join()` on `year` to create `trend_df`, ensuring both series have **no missing years**.  
+3. We then run **lm**, **Mann–Kendall**, and **Sen’s slope** on `trend_df$...`—so there are no `NA`s and `sens.slope()` will succeed.  
+
+This will give you the slope estimates (and p-values), the nonparametric tau & p-values, and the median annual change for both vaccination and case‐rate series, all on a consistent set of years.
