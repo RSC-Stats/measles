@@ -20,7 +20,7 @@ renv::init()
 
 ```{r, include=F}
 # Load necessary libraries
-required_packages <- c("rvest", "dplyr", "tidyr", "rstatix", "ggplot2", "readr", "usmap", "plotly", "fable", "tsibble", "lubridate", "forecast", "png", "reticulate", "stringr", "htmlwidgets", "scales", "EpiSignalDetection")
+required_packages <- c("rvest", "dplyr", "tidyr", "rstatix", "ggplot2", "readr", "usmap", "plotly", "fable", "tsibble", "lubridate", "forecast", "png", "reticulate", "stringr", "htmlwidgets", "scales", "EpiSignalDetection", "prophet")
 
 # Check for missing packages and install them if necessary
 missing_packages <- required_packages[!(required_packages %in% installed.packages()[,"Package"])]
@@ -362,11 +362,6 @@ autoplot(fc) +
 ```
 
 ```{r}
-library(tsibble)
-library(fable)
-library(dplyr)
-library(tidyr)
-
 ts_vax_fable <- mmr_cov %>%
   filter(geography %in% low_2023) %>%
   mutate(year = as.integer(substr(school_year,1,4))) %>%
@@ -389,12 +384,6 @@ autoplot(fc_fbl) +
 ```
 
 ```{r}
-library(dplyr)
-library(tsibble)
-library(tidyr)
-library(fable)
-library(ggplot2)
-
 # 1) Build one annual series per state, and fill implicit gaps
 ts_states <- mmr_cov %>%
   mutate(year = as.integer(substr(school_year, 1, 4))) %>%
@@ -544,6 +533,7 @@ mmr_cov %>%
   labs(title = "Trends in Vaccination Rates (2009-2024): South Atlantic",
        y = "Vaccination rate", x = "Year")
 ```
+
 ```{r}
 mmr_cov %>%
   filter(geography %in% east_south_central) %>%
@@ -584,6 +574,256 @@ mmr_cov %>%
 
 
 # EpisignalDetection
+
+
+```{r}
+
+
+
+atlas_raw   <- importAtlasExport("EpiSignalDetection/data/dataset.csv")
+atlas_clean <- cleanAtlasExport(atlas_raw)
+
+#–– 3. Subset manually with dplyr ––
+sub <- atlas_clean %>%
+  filter(
+    HealthTopic == "Measles",
+    Indicator   == "Reported cases",
+    Population  == "All cases",
+    RegionName  == "Africa"
+  ) %>%
+  # convert the Time string to Date for stsSD()
+  mutate(StudyPeriod = as.Date(Time)) %>%
+  arrange(StudyPeriod)
+
+#–– 4. Build the sts object ––
+sts_obj <- stsSD(
+  observedCases = sub$NumValue,
+  studyPeriod   = sub$StudyPeriod,
+  timeUnit      = "Month",
+  startYM       = c(
+    as.integer(format(sub$StudyPeriod[1], "%Y")),
+    as.integer(format(sub$StudyPeriod[1], "%m"))
+  )
+)
+
+#–– 5. Run Farrington on the last 12 months ––
+res <- algoSD(
+  sts_obj,
+  algo          = "FarringtonFlexible",
+  timeUnit      = "Month",
+  testingPeriod = 12
+)
+
+#–– 6. Plot your signals ––
+plotSD(sts_obj, res) +
+  ggtitle("Measles in Africa: Last 12 Months (Farrington)")
+
+```
+
+
+```{r}
+#THIS IS THE ONE THAT WORKS
+
+# Farrington-Fleixible is an aberration detector (flags past months that exceed expected bounds)
+
+
+df <- read.csv("EpiSignalDetection/data/dataset.csv", stringsAsFactors = FALSE) %>%
+  mutate(
+    Time = as.Date(paste0(Time, "-01"))
+  )
+
+print(unique(df$RegionName))
+
+
+sub <- df %>%
+  filter(
+    HealthTopic == "Measles",
+    Indicator   == "Reported cases",
+    Population  == "All cases",
+    RegionName  == "Africa"
+  ) %>%
+  arrange(Time)
+
+
+sts <- stsSD(
+  observedCases = sub$NumValue,
+  studyPeriod   = sub$Time,
+  timeUnit      = "Month",
+  startYM       = c(
+    as.integer(format(min(sub$Time), "%Y")),
+    as.integer(format(min(sub$Time), "%m"))
+  )
+)
+
+res <- algoSD(
+  sts,
+  algo          = "FarringtonFlexible",
+  timeUnit      = "Month",
+  testingPeriod = 12
+)
+
+plot_df <- data.frame(
+  Time     = sub$Time,
+  Observed = sub$NumValue,
+  Alarm    = as.logical(res@alarm)
+)
+
+ggplot(plot_df, aes(x=Time, y=Observed)) +
+  geom_line() +
+  geom_point(
+    data = plot_df[plot_df$Alarm, ],
+    aes(x=Time, y=Observed),
+    color = "red",
+    size  = 2
+  ) +
+  labs(
+    title = "Measles in Africa: Farrington Signals (last 12 months)",
+    x     = "Month",
+    y     = "Reported cases"
+  ) +
+  theme_minimal()
+
+# No red points on the graph: Farrington-Flexible didn't flag any high months the final year
+# Clear trend of annual cycles. If we want to spot that historically increase testingPeriod to test more months
+
+# Things to add:
+#     Overelay thresholds/upper limits. How close do normal months come to warning boundaries
+#     adjust sensitivity by changing alpha or b/w parameters in AlgoParam()
+
+```
+
+```{r}
+
+
+df_long <- read.csv("EpiSignalDetection/data/dataset.csv", stringsAsFactors = FALSE) %>%
+  mutate(
+    TimeDate  = as.Date(paste0(Time, "-01")),
+    Year      = as.integer(format(TimeDate, "%Y")),
+    MonthName = month.name[as.integer(format(TimeDate, "%m"))]
+  )
+
+
+atlas_wide <- df_long %>%
+  select(
+    Country   = RegionName,
+    Year,
+    MonthName,
+    Count     = NumValue
+  ) %>%
+  pivot_wider(
+    names_from  = MonthName,
+    values_from = Count
+  ) %>%
+  select(Country, Year, all_of(month.name))
+
+
+out_file <- file.path(getwd(), "atlas_export_measles.csv")
+write.csv(atlas_wide, out_file, row.names = FALSE)
+cat("Wrote Atlas export CSV to:\n", out_file, "\n")
+
+
+my_input <- list(
+  file           = list(datapath      = out_file),
+  disease        = "Measles",
+  country        = "Africa",
+  indicator      = "Reported cases",
+  stratification = "All cases",
+  unit           = "Month",
+  daterange      = c(
+    format(min(df_long$TimeDate), "%Y-%m-%d"),
+    format(max(df_long$TimeDate), "%Y-%m-%d")
+  ),
+  algo           = "FarringtonFlexible",
+  testingperiod  = 12
+)
+
+
+EpiSignalDetection::runEpiSDReport(input = my_input)
+```
+
+```{r}
+# Does R even see the file?
+if (!file.exists(my_input$file$datapath)) stop("File not found: ", my_input$file$datapath)
+# Is it the right format?
+readLines(my_input$file$datapath, n = 5)
+
+```
+
+
+```{r}
+EpiSignalDetection::runEpiSDApp()
+```
+
+
+```{r}
+
+
+#–– 1. Read your cleaned CSV and turn “YYYY-MM” into a Date ––
+df <- read.csv("EpiSignalDetection/data/dataset.csv", stringsAsFactors = FALSE) %>%
+  mutate(
+    Time = as.Date(paste0(Time, "-01"))
+  )
+
+#–– 2. (Optional) See what regions are available ––
+print(unique(df$RegionName))
+
+#–– 3. Subset to Measles “All cases” in Africa ––
+sub <- df %>%
+  filter(
+    HealthTopic == "Measles",
+    Indicator   == "Reported cases",
+    Population  == "All cases",
+    RegionName  == "Africa"
+  ) %>%
+  arrange(Time)
+
+#–– 4. Build the sts (surveillance) object ––
+sts <- stsSD(
+  observedCases = sub$NumValue,
+  studyPeriod   = sub$Time,
+  timeUnit      = "Month",
+  startYM       = c(
+    as.integer(format(min(sub$Time), "%Y")),
+    as.integer(format(min(sub$Time), "%m"))
+  )
+)
+
+#–– 5. Run the Farrington‐Flexible detector on the last 12 months ––
+res <- algoSD(
+  sts,
+  algo          = "FarringtonFlexible",
+  timeUnit      = "Month",
+  testingPeriod = 12
+)
+
+library(ggplot2)
+
+# grab your times, counts, and which months were flagged
+plot_df <- data.frame(
+  Time     = sub$Time,
+  Observed = sub$NumValue,
+  Alarm    = as.logical(res@alarm)
+)
+
+ggplot(plot_df, aes(x=Time, y=Observed)) +
+  geom_line() +
+  geom_point(
+    data = plot_df[plot_df$Alarm, ],
+    aes(x=Time, y=Observed),
+    color = "red",
+    size  = 2
+  ) +
+  labs(
+    title = "Measles in Africa: Farrington Signals (last 12 months)",
+    x     = "Month",
+    y     = "Reported cases"
+  ) +
+  theme_minimal()
+
+```
+
+
+
 
 
 ```{r}
@@ -716,4 +956,186 @@ runEpiSDReport(
 
 ```
 
+# Forecasting
+
+```{r}
+
+# 1. Build a ts object from your monthly counts
+#    start = c(year, month) of the first observation
+ts_data <- ts(
+  sub$NumValue,
+  start     = c(as.integer(format(min(sub$Time), "%Y")),
+                as.integer(format(min(sub$Time), "%m"))),
+  frequency = 12
+)
+
+# 2. Fit an ETS model and forecast 12 months ahead
+fit_ets    <- ets(ts_data)
+fc_ets     <- forecast(fit_ets, h = 12)
+
+# 3. Fit an ARIMA model and forecast 12 months ahead
+fit_ari    <- auto.arima(ts_data)
+fc_ari     <- forecast(fit_ari, h = 12)
+
+# 4. Plot both forecasts side by side
+autoplot(ts_data) +
+  autolayer(fc_ets,  series = "ETS forecast") +
+  autolayer(fc_ari,  series = "ARIMA forecast") +
+  labs(
+    title = "Forecasting Measles in Africa (next 12 months)",
+    x     = "Year",
+    y     = "Reported cases"
+  ) +
+  scale_colour_manual(
+    values = c("ETS forecast" = "blue", "ARIMA forecast" = "red"),
+    breaks = c("ETS forecast", "ARIMA forecast")
+  ) +
+  theme_minimal()
+
+# ETS: produce a smoother, more “level” forecast that pulls back any trend to its error-trend-seasonality decomposition
+# ARIMA pick up subtle autocorrelations and may trend differently
+
+```
+
+```{r}
+# build ts_data, fit fc_ets & fc_ari as before…
+
+autoplot(ts_data) +
+  # 1) draw ARIMA **first**, including its PI
+  autolayer(fc_ari, series = "ARIMA forecast") +
+  # 2) then draw ETS **on top**, with its PI
+  autolayer(fc_ets, series = "ETS forecast") +
+  # 3) now manually map both line colours and ribbon fills
+  scale_colour_manual(
+    values = c("ETS forecast"   = "blue",
+               "ARIMA forecast" = "red")
+  ) +
+  scale_fill_manual(
+    values = c("ETS forecast"   = scales::alpha("blue",  0.2),
+               "ARIMA forecast" = scales::alpha("red",   0.2))
+  ) +
+  labs(
+    title =  "Forecasting Measles in Africa (next 12 months)",
+    x     =  "Year",
+    y     =  "Reported cases"
+  ) +
+  theme_minimal()
+
+```
+
+
+```{r}
+library(prophet)
+df_prophet <- sub %>%
+  transmute(ds = Time, y = NumValue)
+m <- prophet(df_prophet)
+future <- make_future_dataframe(m, periods = 12, freq = "month")
+fc  <- predict(m, future)
+plot(m, fc)
+
+```
+
+
+
+```{r correlation-vax-cases, message=FALSE, warning=FALSE}
+
+case_us <- read.csv("USA/data/all/measles-USA-by-year.csv", 
+                    stringsAsFactors = FALSE) %>%
+  transmute(
+    year  = as.integer(year),
+    cases = as.numeric(cases)
+  )
+
+
+vax_us_national <- mmr_cov %>%
+  mutate(year = as.integer(substr(school_year, 1, 4))) %>%
+  group_by(year) %>%
+  summarize(
+    national_vax = mean(num_pct, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+
+cor_df <- inner_join(case_us, vax_us_national, by = "year")
+
+
+pearson_r <- cor(cor_df$national_vax, cor_df$cases, 
+                 method = "pearson", use = "complete.obs")
+corr_test <- cor.test(cor_df$national_vax, cor_df$cases)
+
+
+print(cor_df)
+cat(sprintf("Pearson r = %.3f\n\n", pearson_r))
+print(corr_test)
+
+
+library(ggplot2)
+ggplot(cor_df, aes(x = national_vax, y = cases)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(
+    title = "Correlation: National MMR Coverage vs Measles Cases in the US",
+    x     = "Mean MMR Vaccination Rate",
+    y     = "Reported Measles Cases"
+  ) +
+  theme_minimal()
+
+# 1. Loads **case_us** from your yearly case‐counts CSV.  
+# 2. Aggregates **mmr_cov** into **vax_us_national**, the mean MMR rate per year.  
+# 3. Joins them on `year` into **cor_df**.  
+# 4. Calculates **Pearson’s r** and performs `cor.test()`.  
+# 5. Prints the combined table plus correlation stats.  
+# 6. Plots a scatter with a fitted regression line so you can see how lower vaccination rates relate to higher case counts.
+```
+
+```{r correlation-vax-cases-weighted, message=FALSE, warning=FALSE}
+
+# 1. Read US measles case counts by year
+case_us <- read.csv("USA/data/all/measles-USA-by-year.csv",
+                    stringsAsFactors = FALSE) %>%
+  transmute(
+    year  = as.integer(year),
+    cases = as.numeric(cases)
+  )
+
+# 2. Compute a population-weighted national MMR rate
+#    (using the population_size column in mmr_cov)
+vax_us_weighted <- mmr_cov %>%
+  mutate(year = as.integer(substr(school_year, 1, 4))) %>%
+  group_by(year, geography) %>%
+  summarize(
+    state_vax   = mean(num_pct, na.rm = TRUE),
+    population  = first(population_size),
+    .groups     = "drop"
+  ) %>%
+  group_by(year) %>%
+  summarize(
+    national_vax = sum(state_vax * population) / sum(population),
+    .groups      = "drop"
+  )
+
+# 3. Join cases and weighted vaccination rates
+cor_df <- inner_join(case_us, vax_us_weighted, by = "year")
+
+# 4. Compute Pearson’s r and run the test
+pearson_r <- cor(cor_df$national_vax, cor_df$cases, method = "pearson")
+corr_test <- cor.test(cor_df$national_vax, cor_df$cases)
+
+# 5. Print results
+print(cor_df)
+cat(sprintf("Pearson r = %.3f\n\n", pearson_r))
+print(corr_test)
+
+# 6. Scatterplot with regression line
+ggplot(cor_df, aes(x = national_vax, y = cases)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(
+    title = "Weighted National MMR Coverage vs Measles Cases (US)",
+    x     = "Population-weighted MMR Rate",
+    y     = "Annual Measles Cases"
+  ) +
+  theme_minimal()
+
+```
 
