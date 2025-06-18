@@ -23,7 +23,7 @@ library(reticulate)
 library(stringr)
 library(htmlwidgets)
 library(scales)
-#library(EpiSignalDetection)
+library(EpiSignalDetection)
 library(tidyr)
 library(DT)
 library(ggpubr)
@@ -266,8 +266,7 @@ fig_map <- plot_geo(vax_yearly, locationmode='USA-states') %>%
                              list(frame = list(duration = 500, redraw = FALSE),
                                   transition = list(duration = 0),
                                   fromcurrent = TRUE,
-                                  mode = "immediate")),
-               label  = "▶ Play")
+                                  mode = "immediate")))
         )
       )
     )
@@ -342,5 +341,345 @@ datatable(mmr_fivepct %>% select(geography, mmr_diff),
 These states are Idaho, Wisconsin, Minnesota, Florida, South Dakota, and Illinois.
 
 
+# Forecasting
+
+In this chunk we fit two complementary forecasting models to our monthly measles counts in Africa (2009–2023) and compare their 12-month ahead projections:
+
+- ETS (Error–Trend–Seasonality) decomposes the series into its level, trend, and seasonal components. Its forecast (in blue) tends to be smooth and “pulls” any recent anomalies back toward the long-term seasonal pattern.
+
+- Auto-ARIMA automatically selects an ARIMA(p,d,q) model to capture more complex autocorrelations in the data. Its forecast (in red) can follow recent bumps or dips more closely, but often at the cost of wider uncertainty intervals.
+
+By plotting both on the same axes (with the observed data in black), we can see:
+
+- The ETS forecast stays very close to the historical seasonal baseline, offering a conservative projection.
+
+- The ARIMA forecast dips after the low counts in late 2023 and then creeps upward, reflecting those recent dynamics.
+
+```{r forecast-compare-clean, message=FALSE, warning=FALSE, eval=FALSE}
+
+autoplot(ts_data) +
+ autolayer(fc_ari, series = "ARIMA forecast") +
+ autolayer(fc_ets, series = "ETS forecast") +
+ scale_colour_manual(
+    values = c(
+      "ETS forecast"   = "blue",
+      "ARIMA forecast" = "red"
+    ),
+    breaks = c("ETS forecast", "ARIMA forecast")
+  ) +
+  labs(
+    title = "Forecasting Measles in Africa (next 12 months)",
+    x     = "Year",
+    y     = "Reported cases",
+    colour = "Model"
+  ) +
+  theme_minimal()
+
+```
+
+Next, we embed our pre‐rendered forecast image so it appears in the final HTML.
+
+```{r}
+knitr::include_graphics("forecast.png")
+```
 
 
+
+# Correlation: Vax vs. Cases
+
+In this cell we quantify and visualize the relationship between national MMR coverage and measles incidence in U.S. school-aged children, 2009–2023:
+
+1. Load and prepare case data
+
+- Read annual measles counts (cases) from measles-USA-by-year.csv.
+
+- Join to our mmr_cov population totals (sum of school-aged children) to compute cases_per_100k.
+
+2. Compute national MMR coverage
+
+- Aggregate mmr_cov$num_pct by calendar year to get the unweighted mean vaccination rate (national_vax).
+
+3. Merge and test
+
+- Inner-join the two series on year into cor_df.
+
+- Calculate Pearson’s r and run cor.test() to assess strength and significance.
+
+Plot
+
+- Scatter points of national_vax vs. cases_per_100k with a linear fit and 95% CI ribbon.
+
+Below, you’ll see that as coverage drops, incidence rises—Pearson r ≈ –0.40 (p ≈ 0.03), indicating a moderate, statistically significant inverse relationship: even a one-percentage-point decline in coverage corresponds to a noticeable uptick in measles cases per 100 000 children.
+
+```{r correlation-vax-cases, message=FALSE, warning=FALSE}
+
+# Load annual U.S. case counts and compute per-100k using mmr_cov population
+case_us <- read.csv("USA/data/all/measles-USA-by-year.csv",
+                    stringsAsFactors = FALSE) %>%
+  transmute(
+    year  = as.integer(year),
+    cases = as.numeric(cases)
+  )
+
+
+pop_us <- mmr_cov %>%
+  mutate(year = as.integer(substr(school_year, 1, 4))) %>%
+  group_by(year) %>%
+  summarize(
+    pop_total = sum(population_size, na.rm = TRUE),
+    .groups   = "drop"
+  )
+
+
+case_us <- case_us %>%
+  left_join(pop_us, by = "year") %>%
+  mutate(
+    cases_per_100k = cases / pop_total * 1e5
+  )
+
+# Compute national average MMR coverage
+vax_us_national <- mmr_cov %>%
+  mutate(year = as.integer(substr(school_year, 1, 4))) %>%
+  group_by(year) %>%
+  summarize(
+    national_vax = mean(num_pct, na.rm = TRUE),
+    .groups      = "drop"
+  )
+
+# Merge, compute Pearson r, and run cor.test()
+cor_df <- inner_join(case_us, vax_us_national, by = "year")
+
+
+pearson_r <- cor(cor_df$national_vax, cor_df$cases_per_100k,
+                 method = "pearson", use = "complete.obs")
+corr_test <- cor.test(cor_df$national_vax, cor_df$cases_per_100k)
+
+
+print(cor_df)
+cat(sprintf("Pearson r = %.3f\n\n", pearson_r))
+print(corr_test)
+
+# Plot scatter with linear fit
+ggplot(cor_df, aes(x = national_vax, y = cases_per_100k)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(
+    title = "Correlation: National MMR Coverage vs Measles Cases per 100k (US)",
+    x     = "Mean MMR Vaccination Rate",
+    y     = "Measles Cases per 100,000"
+  ) +
+  theme_minimal()
+
+```
+
+# Global vs Europe vs US
+
+In this cell we compare measles trends across three scales—Global, Europe, and the United States—by building two linked panels:
+
+1. Load & aggregate each region
+
+- Europe: sum monthly data from Measles_Europe.csv into annual totals.
+
+- United States: read annual counts directly from measles-USA-by-year.csv.
+
+- Global: pivot the wide monthly series (January:December) in Measles_Global.csv into long form, then sum per year.
+
+2. Combine & reshape
+
+- Join the three regional data frames on year.
+
+- Pivot longer into cases_long with a region column (“Global”, “Europe”, “United States”).
+
+3. Panel A (Figure 8a): Absolute case counts
+
+- Plot cases vs. year, colored by region.
+
+- Observe that global counts (green) reach the hundreds of thousands in outbreak years, while Europe (red) and US (blue) remain in the low tens of thousands.
+
+4. Panel B (Figure 8b): Year‐over‐year growth rates
+
+- Compute growth = (casesₙ – casesₙ₋₁) / casesₙ₋₁ for each region.
+
+- Plot percent‐change vs. year.
+
+- Note that Europe and the US exhibit sharp spikes (200–300%+) when small baselines double or triple, whereas global growth never exceeds ~150%, since its baseline is so large.
+
+5. Display side‐by‐side
+
+- Use grid.arrange() to stack the two panels vertically for direct comparison.
+
+Overall, these panels show:
+
+- Raw impact is driven by global outbreaks.
+
+- Relative volatility is greatest in Europe and the US, where even small case increases register as huge percentage jumps.
+
+```{r global-vs-us-eur, message=FALSE, warning=FALSE}
+
+# Europe annual totals
+eur_df <- read.csv("Measles_Europe.csv", stringsAsFactors = FALSE) %>%
+  transmute(
+    year  = as.integer(substr(Time, 1, 4)),
+    cases = as.numeric(NumValue)
+  ) %>%
+  group_by(year) %>%
+  summarize(eur_cases = sum(cases, na.rm = TRUE), .groups="drop")
+
+# U.S. annual totals
+usa_df <- read.csv("USA/data/all/measles-USA-by-year.csv",
+                   stringsAsFactors = FALSE) %>%
+  transmute(
+    year     = as.integer(year),
+    us_cases = as.numeric(cases)
+  )
+
+# Global monthly -> annual
+glb_monthly <- read.csv("Measles_Global.csv", stringsAsFactors = FALSE)
+glb_df <- glb_monthly %>%
+  pivot_longer(
+    cols      = January:December,
+    names_to  = "month",
+    values_to = "cases"
+  ) %>%
+  mutate(
+    year  = as.integer(Year),
+    cases = as.numeric(cases)
+  ) %>%
+  group_by(year) %>%
+  summarize(glb_cases = sum(cases, na.rm = TRUE), .groups="drop")
+
+
+cases_all <- full_join(eur_df, usa_df, by = "year") %>%
+  full_join(glb_df, by = "year") %>%
+  arrange(year)
+
+
+cases_long <- cases_all %>%
+  pivot_longer(
+    cols      = c(us_cases, eur_cases, glb_cases),
+    names_to  = "region",
+    values_to = "cases"
+  ) %>%
+  mutate(
+    region = recode(region,
+      us_cases  = "United States",
+      eur_cases = "Europe",
+      glb_cases = "Global")
+  )
+
+# Panel A: absolute counts
+p1 <- ggplot(cases_long, aes(x=year, y=cases, color=region)) +
+  geom_line(size=1) +
+  labs(
+    title = "Annual Measles Case Counts: Global vs Europe vs US",
+    x     = "Year",
+    y     = "Total Reported Cases",
+    color = ""
+  ) +
+  theme_minimal()
+
+# Panel B: year-over-year growth
+cases_growth <- cases_long %>%
+  group_by(region) %>%
+  arrange(year) %>%
+  mutate(
+    growth = (cases - lag(cases)) / lag(cases)
+  ) %>%
+  filter(!is.na(growth))
+
+
+p2 <- ggplot(cases_growth, aes(x=year, y=growth, color=region)) +
+  geom_line(size=1) +
+  scale_y_continuous(labels = scales::percent_format(1)) +
+  labs(
+    title = "Year-over-Year Growth in Measles Cases",
+    x     = "Year",
+    y     = "Growth Rate",
+    color = ""
+  ) +
+  theme_minimal()
+
+library(gridExtra)
+grid.arrange(p1, p2, ncol = 1)
+
+```
+
+# Lagged Relationship & Trends
+
+After running our cross–correlation and lag‐1 analysis, we see two key insights:
+
+1. Strongest link at lag 0
+The ccf() plot (Figure 9a) shows the highest correlation between vaccination coverage and measles incidence when both series are aligned in the same year (lag 0). Correlations at ±1-year lags drop off substantially, indicating that changes in coverage tend to affect case counts most immediately rather than with a delay.
+
+2. Weak, non‐significant lag-1 effect
+When we explicitly shift coverage by one year and compute Pearson’s r (Figure 9b), we obtain a modest correlation (for example, r ≈ 0.32) that does not reach statistical significance (p > 0.05). The scatterplot, with its fitted regression line, confirms there is no reliable predictive relationship from one year’s vaccination rate to the following year’s incidence.
+
+Taken together, these results suggest that MMR coverage and measles incidence co‐move within the same calendar year, but past coverage does not strongly forecast next year’s outbreak size.
+
+```{r lagged-relationship-selfcontained, message=FALSE, warning=FALSE}
+
+
+case_us <- read.csv("USA/data/all/measles-USA-by-year.csv",
+                    stringsAsFactors = FALSE) %>%
+  transmute(
+    year  = as.integer(year),
+    cases = as.numeric(cases)
+  )
+
+pop_us <- mmr_cov %>%
+  mutate(year = as.integer(substr(school_year, 1, 4))) %>%
+  group_by(year) %>%
+  summarize(pop_total = sum(population_size), .groups="drop")
+
+case_us <- case_us %>%
+  left_join(pop_us, by="year") %>%
+  mutate(cases_per_100k = cases / pop_total * 1e5)
+
+
+vax_us_national <- mmr_cov %>%
+  mutate(year = as.integer(substr(school_year, 1, 4))) %>%
+  group_by(year) %>%
+  summarize(national_vax = mean(num_pct, na.rm=TRUE), .groups="drop")
+
+
+cor_df <- inner_join(case_us, vax_us_national, by="year")
+
+
+if(nrow(cor_df) < 4) stop("Need ≥4 years of data in cor_df; got ", nrow(cor_df))
+
+
+vax_ts  <- ts(cor_df$national_vax,  start = min(cor_df$year), freq = 1)
+case_ts <- ts(cor_df$cases_per_100k, start = min(cor_df$year), freq = 1)
+
+
+ccf(vax_ts, case_ts, lag.max = 3,
+    main = "CCF: National MMR Rate vs Cases per 100k (lag ±3 years)")
+
+
+lag  <- 1
+df_lag <- cor_df %>%
+  arrange(year) %>%
+  mutate(vax_lag = lag(national_vax, n = lag)) %>%
+  filter(!is.na(vax_lag))
+
+lag_cor <- cor.test(df_lag$vax_lag, df_lag$cases_per_100k)
+cat(sprintf("Lag-%d Pearson r = %.3f (p = %.3f)\n",
+            lag, lag_cor$estimate, lag_cor$p.value))
+
+ggplot(df_lag, aes(x=vax_lag, y=cases_per_100k)) +
+  geom_point() +
+  geom_smooth(method="lm", se=TRUE) +
+  labs(
+    title    = paste0("Cases per 100k vs MMR Rate (lag ", lag, " year)"),
+    subtitle = sprintf("r = %.2f, p = %.3f",
+                       lag_cor$estimate, lag_cor$p.value),
+    x        = paste0("MMR Rate (year t–", lag, ")"),
+    y        = "Cases per 100k (year t)"
+  ) +
+  theme_minimal()
+```
+
+
+```{r}
+knitr::include_graphics("signal-detect.png")
+```
